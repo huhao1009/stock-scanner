@@ -1,51 +1,86 @@
 {
   "date": "2026-10-20",
-  "scanned": 700,
-  "pool_size": 6,
+  "scanned": 701,
+  "pool_size": 7,
   "strong": [],
   "weak": [],
   "watchlist": [
     {
-      "code": "sz300150",
-      "name": "世纪瑞尔",
-      "days": 2,
-      "amp": 24.5,
-      "first_seen": "2026-10-20"
-    },
-    {
       "code": "sz002835",
       "name": "同为股份",
-      "days": 2,
+      "days": 3,
       "amp": 25.3,
-      "first_seen": "2026-10-20"
-    },
-    {
-      "code": "sz300466",
-      "name": "赛摩智能",
-      "days": 2,
-      "amp": 29.3,
-      "first_seen": "2026-10-20"
+      "first_seen": "2026-10-20",
+      "pos": 74.1,
+      "close": 12.87,
+      "box_high": 13.58,
+      "gap_to_top": 5.5
     },
     {
       "code": "sz300908",
       "name": "仲景食品",
-      "days": 2,
+      "days": 3,
       "amp": 29.6,
-      "first_seen": "2026-10-20"
-    },
-    {
-      "code": "sz300633",
-      "name": "开立医疗",
-      "days": 1,
-      "amp": 24.5,
-      "first_seen": "2026-10-20"
+      "first_seen": "2026-10-20",
+      "pos": 49.5,
+      "close": 17.06,
+      "box_high": 19.28,
+      "gap_to_top": 13.0
     },
     {
       "code": "sh603656",
       "name": "泰禾智能",
-      "days": 1,
+      "days": 2,
       "amp": 29.6,
-      "first_seen": "2026-10-20"
+      "first_seen": "2026-10-20",
+      "pos": 47.8,
+      "close": 18.23,
+      "box_high": 20.7,
+      "gap_to_top": 13.5
+    },
+    {
+      "code": "sh603418",
+      "name": "友升股份",
+      "days": 1,
+      "amp": 26.8,
+      "first_seen": "2026-10-20",
+      "pos": 47.7,
+      "close": 47.92,
+      "box_high": 53.87,
+      "gap_to_top": 12.4
+    },
+    {
+      "code": "sz300150",
+      "name": "世纪瑞尔",
+      "days": 3,
+      "amp": 24.5,
+      "first_seen": "2026-10-20",
+      "pos": 45.5,
+      "close": 3.99,
+      "box_high": 4.47,
+      "gap_to_top": 12.0
+    },
+    {
+      "code": "sz300633",
+      "name": "开立医疗",
+      "days": 2,
+      "amp": 24.5,
+      "first_seen": "2026-10-20",
+      "pos": 43.2,
+      "close": 19.02,
+      "box_high": 21.41,
+      "gap_to_top": 12.6
+    },
+    {
+      "code": "sz300466",
+      "name": "赛摩智能",
+      "days": 3,
+      "amp": 29.3,
+      "first_seen": "2026-10-20",
+      "pos": 39.2,
+      "close": 7.2,
+      "box_high": 8.35,
+      "gap_to_top": 16.0
     }
   ],
   "mkt_filter": true

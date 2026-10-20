@@ -28,17 +28,28 @@ td:nth-child(odd){color:#999;width:22%}
 .wl th{background:#fafafa;color:#888;font-weight:500;padding:8px 6px;font-size:11px;text-align:left}
 .wl td{padding:8px 6px;border-bottom:1px solid #f4f4f4}
 .wl .c{text-align:center;color:#666}
+.wl .cd{color:#bbb;font-size:10px;margin-top:2px}
+.wl .pos{font-weight:700}
+.wl .st{font-size:11px;color:#888}
+.wl tr.hot{background:#fff5f5}
+.wl tr.hot .pos{color:#c00}
+.wl tr.hot .st{color:#c00;font-weight:600}
+.wl tr.near{background:#fffdf5}
+.wl tr.near .pos{color:#e08a00}
+.wl tr.near .st{color:#e08a00}
+.wl tr.cold{opacity:.6}
+.legend{font-size:11px;color:#aaa;margin-top:7px;line-height:1.6;padding:0 4px}
 .foot{text-align:center;color:#bbb;font-size:11px;margin:22px 0 8px;line-height:1.7}
 </style></head><body>
 <h1>横盘异动选股</h1>
-<div class="sub">2026-10-20 · 扫描700只 · 横盘池6只 · 今日无触发信号</div>
+<div class="sub">2026-10-20 · 扫描701只 · 横盘池7只 · 今日无触发信号</div>
 
 <h2>强信号（已推送）</h2>
 <p class="empty">今日无强信号</p>
 <h2>弱信号（接近触发）</h2>
 <p class="empty">今日无弱信号</p>
 <h2>横盘池 · 持续观察</h2>
-<table class="wl"><tr><th>名称</th><th>代码</th><th>池内天数</th><th>振幅</th><th>入池日</th></tr><tr><td>世纪瑞尔</td><td>sz300150</td><td class='c'>2天</td><td class='c'>24.5%</td><td class='c'>2026-10-20</td></tr><tr><td>同为股份</td><td>sz002835</td><td class='c'>2天</td><td class='c'>25.3%</td><td class='c'>2026-10-20</td></tr><tr><td>赛摩智能</td><td>sz300466</td><td class='c'>2天</td><td class='c'>29.3%</td><td class='c'>2026-10-20</td></tr><tr><td>仲景食品</td><td>sz300908</td><td class='c'>2天</td><td class='c'>29.6%</td><td class='c'>2026-10-20</td></tr><tr><td>开立医疗</td><td>sz300633</td><td class='c'>1天</td><td class='c'>24.5%</td><td class='c'>2026-10-20</td></tr><tr><td>泰禾智能</td><td>sh603656</td><td class='c'>1天</td><td class='c'>29.6%</td><td class='c'>2026-10-20</td></tr></table>
+<table class="wl"><tr><th>名称</th><th>天数</th><th>振幅</th><th>箱位</th><th>状态</th></tr><tr class='near'><td>同为股份<div class='cd'>sz002835</div></td><td class='c'>3天</td><td class='c'>25.3%</td><td class='c pos'>74%</td><td class='st'>逼近箱顶（距箱顶5.5%）</td></tr><tr class=''><td>仲景食品<div class='cd'>sz300908</div></td><td class='c'>3天</td><td class='c'>29.6%</td><td class='c pos'>50%</td><td class='st'>箱体中部</td></tr><tr class=''><td>泰禾智能<div class='cd'>sh603656</div></td><td class='c'>2天</td><td class='c'>29.6%</td><td class='c pos'>48%</td><td class='st'>箱体中部</td></tr><tr class=''><td>友升股份<div class='cd'>sh603418</div></td><td class='c'>1天</td><td class='c'>26.8%</td><td class='c pos'>48%</td><td class='st'>箱体中部</td></tr><tr class=''><td>世纪瑞尔<div class='cd'>sz300150</div></td><td class='c'>3天</td><td class='c'>24.5%</td><td class='c pos'>46%</td><td class='st'>箱体中部</td></tr><tr class='cold'><td>开立医疗<div class='cd'>sz300633</div></td><td class='c'>2天</td><td class='c'>24.5%</td><td class='c pos'>43%</td><td class='st'>箱体下部</td></tr><tr class='cold'><td>赛摩智能<div class='cd'>sz300466</div></td><td class='c'>3天</td><td class='c'>29.3%</td><td class='c pos'>39%</td><td class='st'>箱体下部</td></tr></table><div class="legend">箱位＝当前价在横盘箱体中的位置，越高越接近突破；🔥 贴箱顶（≥85%）需重点关注</div>
 <div class="foot">阈值：横盘90日/振幅≤30%/均线粘合≤10%/日均换手≤3%<br>
 强信号=量比≥2且涨≥3% · 弱信号=量比≥1.6且涨≥2%<br>
 ⚠️ 非投资建议，横盘突破策略胜率有限，请自行决策</div>
