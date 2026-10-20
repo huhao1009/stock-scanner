@@ -1,0 +1,5 @@
+report.html
+selftest_report.html
+selftest_result.json
+__pycache__/
+*.pyc

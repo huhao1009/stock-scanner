@@ -19,7 +19,10 @@ concurrency:
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 45
+    env:
+      SCAN_SCOPE: all          # all=全市场  hot=只扫涨幅榜（省额度）
+      WORKERS: "16"            # 并发线程数，太高容易被新浪限流
     steps:
       - uses: actions/checkout@v4
 
@@ -31,7 +34,10 @@ jobs:
         run: pip install -q -r requirements.txt
 
       - name: Run scanner
-        run: python scanner.py
+        run: |
+          # 先清掉旧结果：万一抓取失败，宁可报错，也不要把昨天的信号再推一遍
+          rm -f result.json
+          python scanner.py
 
       - name: Build report and push
         env:

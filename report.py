@@ -1,77 +1,146 @@
-
 # -*- coding: utf-8 -*-
-"""生成手机版HTML报告 + 微信推送(仅强信号)"""
-import json, os, requests
+"""
+=====================================================================
+报告渲染 + 微信推送
+=====================================================================
+
+这里是"通用渲染器"：strategy.py 给什么字段，报告就显示什么。
+换策略不需要改这个文件 —— 前提是 strategy.evaluate() 按契约返回
+level / score / summary / fields / why。
+
+环境变量：
+    SENDKEY     Server酱 SendKey
+    REPORT_URL  报告网址（推送里附带链接）
+=====================================================================
+"""
+import json
+import os
 
 SENDKEY = os.environ.get("SENDKEY", "").strip()
 REPORT_URL = os.environ.get("REPORT_URL", "").strip()
 
 
-def card(m, idx):
-    lvl = "强" if m.get("level") == "强" else "弱"
-    cls = "strong" if lvl == "强" else "weak"
+def _rows(fields):
+    """把 [(标签, 值, 样式), ...] 排成表格行；样式 full 的单独占一行。"""
+    out, buf = [], []
+
+    def flush():
+        if not buf:
+            return
+        tds = "".join(f"<td>{lab}</td><td class='{k or 'v'}'>{val}</td>"
+                      for lab, val, k in buf)
+        if len(buf) == 1:
+            tds += "<td></td><td></td>"
+        out.append(f"<tr>{tds}</tr>")
+        buf.clear()
+
+    for item in fields:
+        lab, val, kind = item
+        if kind == "full":
+            flush()
+            out.append(f"<tr><td>{lab}</td><td class='v' colspan='3'>{val}</td></tr>")
+        else:
+            buf.append(item)
+            if len(buf) == 2:
+                flush()
+    flush()
+    return "".join(out)
+
+
+def card(rec, idx):
+    level = rec.get("level") or "观察"
+    cls = {"强": "strong", "弱": "weak"}.get(level, "watch")
+    badge = {"强": "强信号", "弱": "弱信号"}.get(level, "观察")
     return f"""<div class="card {cls}">
-<div class="h"><span class="idx">{idx}</span><span class="nm">{m['name']}</span>
-<span class="cd">{m['code']}</span><span class="sc">{m['score']}分</span></div>
-<div class="tag">{lvl}信号 · 横盘池第{m['days']}天 · 市值{m['mkt']}亿</div>
-<table>
-<tr><td>现价</td><td class="v">¥{m['close']}</td><td>今日涨幅</td><td class="up">+{m['chg']}%</td></tr>
-<tr><td>量比</td><td class="v">{m['vol_ratio']}倍</td><td>箱体位置</td><td class="v">{m['pos_in_box']}%</td></tr>
-<tr><td>横盘振幅</td><td class="v">{m['amp']}%</td><td>均线粘合</td><td class="v">{m['ma_gap']}%</td></tr>
-<tr><td>箱体区间</td><td class="v" colspan="3">¥{m['box_low']} ~ ¥{m['box_high']}</td></tr>
-</table>
-<div class="why">横盘{m['days']}个交易日，箱体振幅{m['amp']}%（均线粘合{m['ma_gap']}%，日均换手{m['turnover_avg']}%），
-今日{m['vol_ratio']}倍量上涨{m['chg']}%，收盘{m['close']}处于箱体{m['pos_in_box']}%位置，箱顶{m['box_high']}。</div>
+<div class="h"><span class="idx">{idx}</span><span class="nm">{rec['name']}</span>
+<span class="cd">{rec['code']}</span><span class="sc">{rec['score']}分</span></div>
+<div class="tag">{rec.get('summary') or badge}</div>
+<table>{_rows(rec.get('fields') or [])}</table>
+<div class="why">{rec.get('why', '')}</div>
 </div>"""
+
+
+def build_placeholder(date, reason):
+    """非交易日 / 扫描被中止时也要出一张页面，否则工作流会因缺文件而变红。"""
+    return f"""<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>横盘异动 {date}</title>
+<style>
+body{{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;
+background:#f2f3f5;margin:0;padding:14px;color:#1a1a1a}}
+h1{{font-size:19px;margin:0 0 4px}}
+.sub{{color:#8a8a8a;font-size:12px;margin-bottom:18px}}
+.box{{background:#fff;border-radius:12px;padding:22px 14px;text-align:center;
+color:#888;font-size:13px;line-height:1.8}}
+</style></head><body>
+<h1>横盘异动选股</h1>
+<div class="sub">{date}</div>
+<div class="box">{reason}<br>今天没有数据，明天再来。</div>
+</body></html>"""
+
+
+def _watch_html(watch):
+    if not watch:
+        return '<p class="empty">池内暂无标的</p>'
+    trs = []
+    for w in watch:
+        pos, gap = w.get("pos"), w.get("gap_to_top")
+        if pos is None:
+            pos_txt, status, cls = "-", "数据不足", ""
+        elif pos >= 110:
+            pos_txt, cls = f"{pos:.0f}%", "chase"
+            status = f"已冲出箱顶 {pos - 100:.1f}%"
+        elif pos >= 100:
+            pos_txt, cls = f"{pos:.0f}%", "hot"
+            status = f"刚突破箱顶 {pos - 100:.1f}%"
+        elif pos >= 85:
+            pos_txt, cls = f"{pos:.0f}%", "hot"
+            status = f"🔥 贴箱顶（还差 {gap:.1f}%）" if gap is not None else "🔥 贴箱顶"
+        elif pos >= 70:
+            pos_txt, cls = f"{pos:.0f}%", "near"
+            status = f"逼近箱顶（还差 {gap:.1f}%）" if gap is not None else "逼近箱顶"
+        elif pos >= 45:
+            pos_txt, cls = f"{pos:.0f}%", ""
+            status = "箱体中部"
+        else:
+            pos_txt, cls = f"{pos:.0f}%", "cold"
+            status = "箱体下部"
+        trs.append(
+            f"<tr class='{cls}'><td>{w['name']}<div class='cd'>{w['code']}</div></td>"
+            f"<td class='c'>{w.get('days', 1)}天</td><td class='c'>{w.get('amp', '-')}%</td>"
+            f"<td class='c pos'>{pos_txt}</td><td class='st'>{status}</td></tr>")
+    return (
+        '<table class="wl"><tr><th>名称</th><th>跟踪</th><th>振幅</th>'
+        '<th>箱位</th><th>状态</th></tr>' + "".join(trs) + "</table>"
+        '<div class="legend">箱位＝当前价在箱体中的位置，100% 即箱顶。<br>'
+        '「跟踪」是本系统盯了它几天，不是它横了几天 —— 横盘周期固定按策略参数算。</div>')
 
 
 def build(result):
     d = result
     strong, weak = d.get("strong", []), d.get("weak", [])
     watch = d.get("watchlist", [])
+    st = d.get("strategy") or {}
 
-    if strong or weak:
-        head = f"强信号 {len(strong)} 只 · 弱信号 {len(weak)} 只"
+    ns, nw = d.get("strong_total", len(strong)), d.get("weak_total", len(weak))
+    if ns or nw:
+        head = f"强信号 {ns} 只 · 弱信号 {nw} 只"
     else:
         head = "今日无触发信号"
 
-    body_s = "".join(card(m, i) for i, m in enumerate(strong, 1)) or '<p class="empty">今日无强信号</p>'
-    body_w = "".join(card(m, i) for i, m in enumerate(weak, 1)) or '<p class="empty">今日无弱信号</p>'
+    body_s = "".join(card(m, i) for i, m in enumerate(strong, 1)) or \
+        '<p class="empty">今日无强信号</p>'
+    body_w = "".join(card(m, i) for i, m in enumerate(weak, 1)) or \
+        '<p class="empty">今日无弱信号</p>'
 
-    if watch:
-        trs = []
-        for w in watch:
-            pos = w.get("pos")
-            gap = w.get("gap_to_top")
-            if pos is None:
-                pos_txt, status, cls = "-", "数据不足", ""
-            elif pos >= 85:
-                pos_txt = f"{pos:.0f}%"
-                status = f"🔥 贴箱顶（距箱顶{gap}%）" if gap is not None else "🔥 贴箱顶"
-                cls = "hot"
-            elif pos >= 70:
-                pos_txt = f"{pos:.0f}%"
-                status = f"逼近箱顶（距箱顶{gap}%）" if gap is not None else "逼近箱顶"
-                cls = "near"
-            elif pos >= 45:
-                pos_txt = f"{pos:.0f}%"
-                status, cls = "箱体中部", ""
-            else:
-                pos_txt = f"{pos:.0f}%"
-                status, cls = "箱体下部", "cold"
-            trs.append(
-                f"<tr class='{cls}'><td>{w['name']}<div class='cd'>{w['code']}</div></td>"
-                f"<td class='c'>{w['days']}天</td><td class='c'>{w['amp']}%</td>"
-                f"<td class='c pos'>{pos_txt}</td><td class='st'>{status}</td></tr>")
-        watch_html = (
-            '<table class="wl"><tr><th>名称</th><th>天数</th><th>振幅</th>'
-            '<th>箱位</th><th>状态</th></tr>' + "".join(trs) + "</table>"
-            '<div class="legend">箱位＝当前价在横盘箱体中的位置，越高越接近突破；'
-            '🔥 贴箱顶（≥85%）需重点关注</div>')
-    else:
-        watch_html = '<p class="empty">池内暂无标的</p>'
+    scope = "全市场" if d.get("scope") == "all" else "涨幅榜"
+    stat = f"扫描 {d.get('scanned', 0)} 只"
+    if d.get("scanned_ok"):
+        stat += f"（有效 {d['scanned_ok']}）"
+    stat += f" · 横盘池 {d.get('pool_size', 0)} 只"
 
-    mkt_note = "" if d.get("mkt_filter") else '<div class="warn">⚠️ 本轮市值数据源不可用，未按市值过滤</div>'
+    rules = st.get("rules") or []
+    rules_html = "".join(f"{r}<br>" for r in rules)
 
     return f"""<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
@@ -80,8 +149,7 @@ def build(result):
 *{{box-sizing:border-box}}
 body{{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;background:#f2f3f5;margin:0;padding:14px;color:#1a1a1a;-webkit-text-size-adjust:100%}}
 h1{{font-size:19px;margin:0 0 4px}}
-.sub{{color:#8a8a8a;font-size:12px;margin-bottom:14px}}
-.warn{{background:#fff7e6;border-left:3px solid #faad14;padding:8px 10px;border-radius:6px;font-size:12px;color:#96640a;margin-bottom:12px}}
+.sub{{color:#8a8a8a;font-size:12px;margin-bottom:14px;line-height:1.7}}
 h2{{font-size:15px;margin:20px 0 10px;padding-left:8px;border-left:3px solid #c00}}
 .card{{background:#fff;border-radius:12px;padding:13px;margin-bottom:11px;box-shadow:0 1px 3px rgba(0,0,0,.07)}}
 .card.strong{{border-left:4px solid #c00}}
@@ -97,7 +165,9 @@ td{{padding:5px 2px;border-bottom:1px solid #f4f4f4}}
 td:nth-child(odd){{color:#999;width:22%}}
 .v{{color:#1a1a1a;font-weight:600}}
 .up{{color:#c00;font-weight:700}}
-.why{{margin-top:9px;font-size:12px;line-height:1.6;background:#fafbfc;border-radius:6px;padding:8px 9px;color:#555}}
+.warn{{color:#e08a00;font-weight:700}}
+.dim{{color:#999}}
+.why{{margin-top:9px;font-size:12px;line-height:1.65;background:#fafbfc;border-radius:6px;padding:8px 9px;color:#555}}
 .empty{{color:#b0b0b0;font-size:13px;text-align:center;padding:14px;background:#fff;border-radius:10px}}
 .wl{{background:#fff;border-radius:10px;font-size:12px;overflow:hidden}}
 .wl th{{background:#fafafa;color:#888;font-weight:500;padding:8px 6px;font-size:11px;text-align:left}}
@@ -109,50 +179,57 @@ td:nth-child(odd){{color:#999;width:22%}}
 .wl tr.hot{{background:#fff5f5}}
 .wl tr.hot .pos{{color:#c00}}
 .wl tr.hot .st{{color:#c00;font-weight:600}}
+.wl tr.chase{{background:#fff0f0}}
+.wl tr.chase .pos{{color:#8b0000}}
+.wl tr.chase .st{{color:#8b0000}}
 .wl tr.near{{background:#fffdf5}}
 .wl tr.near .pos{{color:#e08a00}}
 .wl tr.near .st{{color:#e08a00}}
 .wl tr.cold{{opacity:.6}}
-.legend{{font-size:11px;color:#aaa;margin-top:7px;line-height:1.6;padding:0 4px}}
-.foot{{text-align:center;color:#bbb;font-size:11px;margin:22px 0 8px;line-height:1.7}}
+.legend{{font-size:11px;color:#aaa;margin-top:7px;line-height:1.7;padding:0 4px}}
+.foot{{text-align:center;color:#bbb;font-size:11px;margin:22px 0 8px;line-height:1.8}}
 </style></head><body>
 <h1>横盘异动选股</h1>
-<div class="sub">{d['date']} · 扫描{d['scanned']}只 · 横盘池{d['pool_size']}只 · {head}</div>
-{mkt_note}
+<div class="sub">{d['date']} · {scope} · {stat} · {head}<br>
+策略：{st.get('name', '')} {st.get('version', '')}</div>
 <h2>强信号（已推送）</h2>
 {body_s}
 <h2>弱信号（接近触发）</h2>
 {body_w}
 <h2>横盘池 · 持续观察</h2>
-{watch_html}
-<div class="foot">阈值：横盘90日/振幅≤30%/均线粘合≤10%/日均换手≤3%<br>
-强信号=量比≥2且涨≥3% · 弱信号=量比≥1.6且涨≥2%<br>
+{_watch_html(watch)}
+<div class="foot">{rules_html}
 ⚠️ 非投资建议，横盘突破策略胜率有限，请自行决策</div>
 </body></html>"""
 
 
 def push(result):
-    """仅强信号推送; 无强信号不推, 节省 Server酱 5条/天额度"""
+    """仅强信号推送，节省 Server酱 每天 5 条额度。"""
     strong = result.get("strong", [])
     if not SENDKEY:
-        print("未配置 SENDKEY，跳过推送"); return
+        print("未配置 SENDKEY，跳过推送")
+        return
     if not strong:
-        print("今日无强信号，按规则不推送"); return
+        print("今日无强信号，按规则不推送")
+        return
 
     names = "、".join(m["name"] for m in strong)
     title = f"横盘异动 {result['date']}：{names}"
     lines = []
     for m in strong:
+        f = {lab: val for lab, val, _ in (m.get("fields") or [])}
         lines.append(
             f"**{m['name']}** {m['code']} · {m['score']}分\n"
-            f"- 现价 ¥{m['close']}，今日 **+{m['chg']}%**\n"
-            f"- {m['vol_ratio']}倍量 · 箱体{m['pos_in_box']}%位 · 横盘{m['days']}天\n"
-            f"- 振幅{m['amp']}%，箱顶¥{m['box_high']}\n")
+            f"- 现价 {f.get('现价', '-')}，今日 **{f.get('今日涨幅', '-')}**\n"
+            f"- 量能 {f.get('量能倍数', '-')} · 箱位 {f.get('箱体位置', '-')}\n"
+            f"- 振幅 {f.get('箱体振幅', '-')} · 箱体 {f.get('箱体区间', '-')}\n"
+            f"- {m.get('summary', '')}\n")
     desp = "\n".join(lines)
     if REPORT_URL:
         desp += f"\n\n[📊 查看完整报告]({REPORT_URL})"
     desp += "\n\n⚠️ 仅供参考，非投资建议"
     try:
+        import requests          # 只有推送时才需要，报告渲染不依赖网络库
         r = requests.post(f"https://sctapi.ftqq.com/{SENDKEY}.send",
                           data={"title": title[:32], "desp": desp}, timeout=20)
         j = r.json()
@@ -166,7 +243,10 @@ if __name__ == "__main__":
         res = json.load(f)
 
     if res.get("skip"):
-        print(f"今日非交易日（{res.get('date')}），跳过报告与推送")
+        reason = res.get("reason") or "今天不是交易日"
+        with open("report.html", "w", encoding="utf-8") as f:
+            f.write(build_placeholder(res.get("date", ""), reason))
+        print(f"跳过：{reason}（已生成占位页，不推送）")
         raise SystemExit(0)
 
     html = build(res)
