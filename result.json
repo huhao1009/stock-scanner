@@ -1,107 +1,101 @@
 {
-  "date": "2026-10-20",
-  "scanned": 701,
-  "pool_size": 6,
-  "strong": [
-    {
-      "amp": 29.3,
-      "ma_gap": 2.0,
-      "turnover_avg": 1.29,
-      "vol_ratio": 6.1,
-      "chg": 20.0,
-      "box_high": 8.35,
-      "box_low": 6.46,
-      "close": 8.64,
-      "pos_in_box": 115.3,
-      "last_date": "2026-10-20",
-      "code": "sz300466",
-      "name": "赛摩智能",
-      "price": 8.64,
-      "chg_today": 20.0,
-      "mkt": 39.8,
-      "first_seen": "2026-10-20",
-      "days": 4,
-      "score": 74,
-      "level": "强"
-    },
-    {
-      "amp": 24.5,
-      "ma_gap": 1.3,
-      "turnover_avg": 1.59,
-      "vol_ratio": 3.59,
-      "chg": 6.77,
-      "box_high": 4.47,
-      "box_low": 3.59,
-      "close": 4.26,
-      "pos_in_box": 76.1,
-      "last_date": "2026-10-20",
-      "code": "sz300150",
-      "name": "世纪瑞尔",
-      "price": 4.26,
-      "chg_today": 6.767,
-      "mkt": 19.8,
-      "first_seen": "2026-10-20",
-      "days": 4,
-      "score": 70,
-      "level": "强"
-    },
-    {
-      "amp": 29.6,
-      "ma_gap": 3.0,
-      "turnover_avg": 1.38,
-      "vol_ratio": 4.84,
-      "chg": 7.09,
-      "box_high": 19.28,
-      "box_low": 14.88,
-      "close": 18.27,
-      "pos_in_box": 77.0,
-      "last_date": "2026-10-20",
-      "code": "sz300908",
-      "name": "仲景食品",
-      "price": 18.27,
-      "chg_today": 7.093,
-      "mkt": 32.6,
-      "first_seen": "2026-10-20",
-      "days": 4,
-      "score": 68,
-      "level": "强"
-    }
-  ],
-  "weak": [
-    {
-      "amp": 24.1,
-      "ma_gap": 6.1,
-      "turnover_avg": 1.39,
-      "vol_ratio": 3.53,
-      "chg": 2.58,
-      "box_high": 19.82,
-      "box_low": 15.97,
-      "close": 18.7,
-      "pos_in_box": 70.9,
-      "last_date": "2026-10-20",
-      "code": "sh603656",
-      "name": "泰禾智能",
-      "price": 18.7,
-      "chg_today": 2.578,
-      "mkt": 34.2,
-      "first_seen": "2026-10-20",
-      "days": 3,
-      "score": 58,
-      "level": "弱"
-    }
-  ],
-  "watchlist": [
-    {
-      "code": "sz002835",
-      "name": "同为股份",
-      "days": 4,
-      "amp": 25.3,
-      "first_seen": "2026-10-20",
-      "pos": 121.2,
-      "close": 14.16,
-      "box_high": 13.58,
-      "gap_to_top": -4.1
-    }
-  ],
-  "mkt_filter": true
+ "date": "2026-10-20",
+ "scanned": 2896,
+ "scanned_ok": 2896,
+ "scope": "all",
+ "breadth": 55.4,
+ "pool_size": 1,
+ "strategy": {
+  "name": "黑牛稳健",
+  "version": "v1",
+  "rules": [
+   "信号：EMA(C,5) 上穿 EMA(SLOPE(C,21)*20+C,55)",
+   "过滤：J<50 ＋ 收盘<HHV(H,20)×0.94 ＋ 收阳 ＋ 大盘涨家数≥50%",
+   "密度门槛：当日出票≥7只（约0.7%×扫描数）才推送；稀疏日仅记录不推送",
+   "建议持有 20 个交易日；休眠≤3天的信号标注「博连板候选」（连板率高4~6倍，但整体收益不更好，勿重仓）",
+   "市值 15~300 亿 · 股价≥3 元"
+  ]
+ },
+ "signal_total": 1,
+ "density_threshold": 20,
+ "density_ok": false,
+ "strong": [],
+ "weak": [
+  {
+   "level": "弱",
+   "score": 97,
+   "summary": "信号 · 休眠4天 · 建议持有20日口径",
+   "fields": [
+    [
+     "现价",
+     "¥25.28",
+     ""
+    ],
+    [
+     "今日涨幅",
+     "+2.39%",
+     "up"
+    ],
+    [
+     "量能倍数",
+     "0.88 倍",
+     ""
+    ],
+    [
+     "J值",
+     "34.0",
+     "dim"
+    ],
+    [
+     "回调深度",
+     "2.3%",
+     "dim"
+    ],
+    [
+     "休眠天数",
+     "4 天",
+     ""
+    ],
+    [
+     "金叉乖离",
+     "+0.18%",
+     "dim"
+    ],
+    [
+     "流通市值",
+     "247.2 亿",
+     ""
+    ],
+    [
+     "持有建议",
+     "20 个交易日口径（回测20日均收 +1.8%）",
+     "full"
+    ]
+   ],
+   "why": "买线 EMA5 今日上穿趋势线 EMA55（金叉乖离 +0.18%）。J=34.0 未过热；收盘 ¥25.28 低于 20 日高点 ¥27.52 的 0.94 倍（回调深度 2.3%）；今日收阳。当日大盘涨家数 55%，满足 ≥50% 的市场环境条件。该股已休眠 4 天（单日涨跌≥4.7%记为动过）。回测口径：持有 20 个交易日。",
+   "metrics": {
+    "close": 25.28,
+    "chg": 2.39,
+    "vr": 0.88,
+    "J": 34.0,
+    "dd": 2.28,
+    "spread": 0.18,
+    "sleep": 4,
+    "lb_tag": 0,
+    "breadth": 55.4
+   },
+   "code": "sz002430",
+   "name": "杭氧股份"
+  }
+ ],
+ "pool_history": [
+  {
+   "code": "sz002430",
+   "name": "杭氧股份",
+   "last_date": "2026-10-20",
+   "close": 25.28,
+   "sleep": 4,
+   "J": 34.0
+  }
+ ]
 }
