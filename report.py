@@ -1,8 +1,10 @@
+
 # -*- coding: utf-8 -*-
 """生成手机版HTML报告 + 微信推送(仅强信号)"""
 import json, os, requests
 
 SENDKEY = os.environ.get("SENDKEY", "").strip()
+REPORT_URL = os.environ.get("REPORT_URL", "").strip()
 
 
 def card(m, idx):
@@ -111,7 +113,10 @@ def push(result):
             f"- 现价 ¥{m['close']}，今日 **+{m['chg']}%**\n"
             f"- {m['vol_ratio']}倍量 · 箱体{m['pos_in_box']}%位 · 横盘{m['days']}天\n"
             f"- 振幅{m['amp']}%，箱顶¥{m['box_high']}\n")
-    desp = "\n".join(lines) + "\n\n⚠️ 仅供参考，非投资建议"
+    desp = "\n".join(lines)
+    if REPORT_URL:
+        desp += f"\n\n[📊 查看完整报告]({REPORT_URL})"
+    desp += "\n\n⚠️ 仅供参考，非投资建议"
     try:
         r = requests.post(f"https://sctapi.ftqq.com/{SENDKEY}.send",
                           data={"title": title[:32], "desp": desp}, timeout=20)
