@@ -1,0 +1,57 @@
+
+
+name: stock-scanner
+
+on:
+  schedule:
+    # 每天 UTC 10:30 = 北京 18:30 触发
+    # 周末/节假日由代码内部判断并自动跳过（含调休）
+    - cron: "30 10 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stock-scanner
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install deps
+        run: pip install -q akshare pandas requests
+
+      - name: Run scanner
+        run: python scanner.py
+
+      - name: Build report and push
+        env:
+          SENDKEY: ${{ secrets.SENDKEY }}
+        run: python report.py
+
+      - name: Save pool
+        run: |
+          git config user.name "stock-scanner-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add pool.json result.json || true
+          git commit -m "update pool $(date -u +%Y-%m-%d)" || echo "no change"
+          git push || echo "skip push"
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: report-${{ github.run_id }}
+          path: report.html
+          retention-days: 90
+          if-no-files-found: ignore
