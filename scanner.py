@@ -39,8 +39,12 @@ CFG = {
     "scan_scope": os.environ.get("SCAN_SCOPE", "all").strip().lower(),  # all | hot
     "scan_chg_min": 2.0,      # hot 模式下的涨幅门槛
     "max_scan_hot": 900,      # hot 模式下涨幅榜上限
-    "max_out": 3,             # 强/弱信号各最多展示几只
-    "max_watch": 20,          # 观察池最多展示几只
+    "max_show": 30,           # 报告里最多展示几张信号卡
+    "push_names": 12,         # 微信推送最多列几只名字
+    # ---- 密度门槛（回测结论：当日出票稀疏时信号无超额，不推） ----
+    # 达标 = 当日信号数 >= max(下限, 比例×有效扫描数)
+    "density_floor": 7,       # 绝对下限
+    "density_ratio": 0.007,   # 约 0.7%（回测：1000只样本出票7只起才有超额）
     "pool_file": "pool.json",
     "result_file": "result.json",
     "fetch_retry": 2,
@@ -108,16 +112,18 @@ def calc_mktcap(h):
 
 # ---------------------------------------------------------------- 单只处理
 def work(code, name, prev):
-    """在子线程里跑：抓日线 → 算市值 → 交给策略判断。"""
+    """在子线程里跑：抓日线 → 算市值 → 交给策略判断。
+    返回 (是否成功抓到日线, 信号或None)。抓取失败与"今天没信号"必须区分开，
+    否则密度门槛的分母（有效扫描数）会算错。"""
     try:
         h = fetch(code)
         if h is None:
-            return None
+            return False, None
         if CFG["fetch_sleep"]:
             time.sleep(CFG["fetch_sleep"])
-        return strategy.evaluate(h, code, name, prev, calc_mktcap(h))
+        return True, strategy.evaluate(h, code, name, prev, calc_mktcap(h))
     except Exception:
-        return None
+        return False, None
 
 
 # ---------------------------------------------------------------- 池子
@@ -167,6 +173,13 @@ def main():
     df = df.drop_duplicates(subset=["代码"])
     log(f"2/5 基础过滤后 {len(df)} 只")
 
+    # 大盘宽度（涨家数占比）注入策略层：这是配方里的市场环境条件
+    chg_col = pd.to_numeric(df.get("涨跌幅"), errors="coerce").dropna()
+    breadth = float((chg_col > 0).mean()) if len(chg_col) else None
+    strategy.set_market(breadth)
+    log(f"  大盘涨家数占比 {breadth*100:.1f}%" if breadth is not None
+        else "  大盘宽度无法计算，今天不会出信号")
+
     names = df.set_index("代码")["名称"].to_dict()
 
     # ---- 2. 决定扫描范围 ----
@@ -190,7 +203,7 @@ def main():
 
     # ---- 3. 并发抓取 + 判断 ----
     log(f"3/5 扫描 {len(scan_codes)} 只（{CFG['workers']} 线程并发）")
-    records, fail, done = {}, 0, 0
+    records, fail, fetched, done = {}, 0, 0, 0
     aborted = False
     ex = ThreadPoolExecutor(max_workers=CFG["workers"])
     futs = {ex.submit(work, c, names.get(c, ""), pool.get(c)): c for c in scan_codes}
@@ -199,20 +212,22 @@ def main():
             done += 1
             code = futs[f]
             try:
-                rec = f.result()
+                ok, rec = f.result()
             except Exception:
-                rec = None
-            if rec is None:
+                ok, rec = False, None
+            if not ok:
                 fail += 1
             else:
-                rec["code"] = code
-                rec["name"] = names.get(code, "")
-                records[code] = rec
+                fetched += 1
+                if rec is not None:
+                    rec["code"] = code
+                    rec["name"] = names.get(code, "")
+                    records[code] = rec
             if done % 300 == 0:
-                log(f"  {done}/{len(scan_codes)} 通过{len(records)} 失败{fail} "
-                    f"({time.time() - t0:.0f}s)")
+                log(f"  {done}/{len(scan_codes)} 抓到{fetched} 信号{len(records)} "
+                    f"失败{fail} ({time.time() - t0:.0f}s)")
             # 熔断：前 200 只几乎全失败，说明接口被限流，别再白跑半小时
-            if done == 200 and len(records) < 10:
+            if done == 200 and fetched < 10:
                 log("  ⚠️ 前 200 只几乎全部失败，疑似被限流，中止本次扫描")
                 aborted = True
                 break
@@ -231,63 +246,59 @@ def main():
         log("  已写 result.json（标记为跳过），池子文件保持不变")
         return
 
-    # ---- 4. 建池 + 分类 ----
-    new_pool, strong, weak = {}, [], []
-    for code, rec in records.items():
-        m = rec["metrics"]
-        new_pool[code] = {
-            "first_seen": (pool.get(code) or {}).get("first_seen", today),
-            "days": m["days"],
-            "name": rec["name"],
-            "amp": m["amp"],
-            "last": today,
-            "pos": m["pos"],
-            "close": m["close"],
-            "box_high": m["box_high"],
-            "box_low": m["box_low"],
-        }
-        if rec["level"] == "强":
-            strong.append(rec)
-        elif rec["level"] == "弱":
-            weak.append(rec)
+    # ---- 4. 信号聚合 + 密度门槛 ----
+    signals = list(records.values())
+    # 排序：休眠短的在前（连板特征），同分按 score
+    signals.sort(key=lambda r: (r["metrics"]["sleep"], -r["score"]))
 
+    # 信号历史池：最近 14 天出过信号的票都留着，供回顾排查
+    new_pool = {
+        r["code"]: {"name": r["name"], "last_date": today,
+                    "close": r["metrics"]["close"],
+                    "sleep": r["metrics"]["sleep"], "J": r["metrics"]["J"]}
+        for r in signals
+    }
+    keep_from = (datetime.date.today()
+                 - datetime.timedelta(days=14)).isoformat()
+    for c, v in pool.items():
+        if c not in new_pool and str(v.get("last_date", "")) >= keep_from:
+            new_pool[c] = v
     save_json(CFG["pool_file"], new_pool)
 
-    strong.sort(key=lambda x: -x["score"])
-    weak.sort(key=lambda x: -x["score"])
-
-    trig = {r["code"] for r in strong + weak}
-    watch = sorted(
-        [(c, v) for c, v in new_pool.items() if c not in trig],
-        key=lambda x: (-(x[1].get("pos") or 0), -x[1]["days"]),
-    )
+    # 密度门槛：回测结论 —— 当日出票稀疏（<7只/千只）时信号无超额，不推送
+    threshold = max(CFG["density_floor"],
+                    round(CFG["density_ratio"] * max(fetched, 1)))
+    density_ok = len(signals) >= threshold
+    if density_ok:
+        strong = [dict(r, level="强") for r in signals]
+        weak = []
+        log(f"  ✅ 密度达标：出票 {len(signals)} ≥ 门槛 {threshold}，推送")
+    else:
+        strong, weak = [], signals
+        log(f"  ⛔ 密度未达标：出票 {len(signals)} < 门槛 {threshold}，仅记录不推送")
 
     res = {
         "date": today,
         "scanned": len(scan_codes),
-        "scanned_ok": len(records),
+        "scanned_ok": fetched,
         "scope": CFG["scan_scope"],
+        "breadth": round(breadth * 100, 1) if breadth is not None else None,
         "pool_size": len(new_pool),
         "strategy": {"name": strategy.NAME, "version": strategy.VERSION,
                      "rules": strategy.describe()},
-        "strong": strong[: CFG["max_out"]],
-        "weak": weak[: CFG["max_out"]],
-        "strong_total": len(strong),
-        "weak_total": len(weak),
-        "watchlist": [
-            {
-                "code": c, "name": v["name"], "days": v["days"], "amp": v["amp"],
-                "first_seen": v["first_seen"], "pos": v.get("pos"),
-                "close": v.get("close"), "box_high": v.get("box_high"),
-                "gap_to_top": round((v["box_high"] / v["close"] - 1) * 100, 1)
-                if v.get("close") and v.get("box_high") else None,
-            }
-            for c, v in watch[: CFG["max_watch"]]
-        ],
+        "signal_total": len(signals),
+        "density_threshold": threshold,
+        "density_ok": density_ok,
+        "strong": strong[: CFG["max_show"]],
+        "weak": weak[: CFG["max_show"]],
+        "pool_history": sorted(
+            ({"code": c, **v} for c, v in new_pool.items()),
+            key=lambda x: str(x.get("last_date", "")), reverse=True,
+        )[:20],
     }
     save_json(CFG["result_file"], res)
-    log(f"4/5 完成：池 {len(new_pool)} 强 {len(strong)} 弱 {len(weak)} "
-        f"耗时 {time.time() - t0:.0f}s")
+    log(f"4/5 完成：信号 {len(signals)} 门槛 {threshold} "
+        f"达标={'是' if density_ok else '否'} 耗时 {time.time() - t0:.0f}s")
     log("5/5 已写 result.json")
 
 

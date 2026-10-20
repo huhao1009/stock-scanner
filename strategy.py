@@ -11,8 +11,9 @@
 
   1. NAME / VERSION   策略名字和版本号（显示在报告里）
   2. CFG              所有阈值参数，集中放这里，调参数不用翻代码
-  3. describe()       返回若干行文字，显示在报告底部，让人知道规则是什么
+  3. describe()       返回若干行文字，显示在报告底部
   4. evaluate()       核心：拿到一只股票的日线，判断它符不符合条件
+     set_market()     盘前把大盘宽度告诉策略（scanner 每天调用一次）
 
 evaluate() 的输入输出契约
 -------------------------
@@ -20,86 +21,96 @@ evaluate() 的输入输出契约
     hist    pandas.DataFrame，单只股票的日线，最后一行是最新交易日
             字段：date / open / high / low / close / volume /
                   amount / outstanding_share / turnover
-    code    带市场前缀的代码，如 "sz300466"
+    code    带市场前缀的代码，如 "sz000001"
     name    股票名称
-    prev    该股票上一次入池的记录 dict，第一次入池时为 None
+    prev    该股票上一次的记录 dict，第一次为 None
     mktcap  流通市值（亿元），已经算好；算不出来时是 None
 
 返回：
-    None                                  不符合，直接丢弃
-    {"level": None,   ...}                符合，进观察池，但今天不触发信号
-    {"level": "强",   ...}                触发强信号（会推微信）
-    {"level": "弱",   ...}                触发弱信号（只进报告）
+    None                今天不出信号
+    {"level": "弱", ...}  出信号（进报告；只有当日信号总数达到密度门槛
+                          时，scanner 才把它升级为 "强" 并推送微信）
 
-返回的完整结构：
-    {
-      "level":   "强" / "弱" / None
-      "score":   int 0~100，用于排序，越高越靠前
-      "summary": str，一句话说明，显示在卡片标题下面那行灰字
-      "fields":  [(标签, 值, 样式), ...]，卡片里的表格，样式可选
-                 ""      普通加粗
-                 "up"    红色（涨幅等）
-                 "warn"  橙色（需要警惕）
-                 "dim"   灰色（次要信息）
-                 "full"  独占一整行（值跨三列）
-      "why":     str，一段自然语言解释，显示在卡片底部灰底框里
-      "metrics": dict，任意数值，会被原样写进 pool.json 供下次调用使用
-    }
-
-关键点：报告是"通用渲染"的——你往 fields 里放什么，报告就显示什么。
-        想加一个新指标，只要在 fields 里加一行，不需要改 report.py。
+返回结构：level / score / summary / fields / why / metrics
+    fields 是 (标签, 值, 样式) 列表，样式可选 ""/"up"/"warn"/"dim"/"full"，
+    报告通用渲染 —— 想加指标只要在 fields 里加一行。
 
 =====================================================================
-当前策略：横盘突破 v5
+当前策略：黑牛稳健 v1（2026-10-20，1000 只主板样本回测通过）
 =====================================================================
-思路：先判断一只股票"过去一段时间是不是在箱体里睡着"，再判断"今天有没有醒"。
-      睡着 = 状态，醒 = 事件，两件事分开判断，所以池子独立于当天涨跌生成。
+信号：EMA(C,5) 上穿 EMA(SLOPE(C,21)*20+C, 55)
+过滤：改良KDJ J<50（不追高）
+     + 收盘 < HHV(H,20)×0.94（买回调）
+     + 收阳（C>O）
+     + 当日大盘涨家数 ≥ 50%
+
+回测结论（bt_top3/，2022-08~2026-10）：
+    次日胜率 54.6% vs 基准 47.7%；价值集中在高密度日：
+    当日出票 7-19 只 → 20日 +4.56%；20只以上 → 次日 75.9%、20日 +8.17%
+    稀疏日（1-6只）≈ 无超额 → 密度门槛必须保留（scanner 实现）
+    连板特征：休眠短的信号连板率高 4~6 倍，但整体收益并不更好 ——
+    报告只标注，不宣称"精选"。
+    建议持有口径：20 个交易日。
 """
 
+import numpy as np
 import pandas as pd
 
-NAME = "横盘突破"
-VERSION = "v5"
+NAME = "黑牛稳健"
+VERSION = "v1"
 
 # =====================================================================
-# 参数区：所有阈值都在这里，改参数只改这一段
+# 参数区
 # =====================================================================
 CFG = {
-    # ---- 入池门槛：什么样的股票值得盯 ----
-    "price_min": 3.0,        # 最低股价，剔除低价股
-    "mkt_min": 15.0,         # 流通市值下限（亿元），剔除空壳
-    "mkt_max": 50.0,         # 流通市值上限（亿元）
+    "price_min": 3.0,        # 最低股价
+    "mkt_min": 15.0,         # 流通市值下限（亿）—— 与回测口径一致
+    "mkt_max": 300.0,        # 流通市值上限（亿）
 
-    # ---- 横盘形态：四条同时满足才算"睡着了" ----
-    "box_days": 90,          # 箱体长度（交易日）
-    "amp_max": 0.30,         # 箱体振幅上限（最高/最低-1）
-    "ma_gap_max": 0.10,      # 5/10/20/60 日均线粘合度上限
-    "turnover_max": 3.0,     # 横盘期日均换手率上限（%）
+    "slope_n": 21,           # 趋势线斜率周期
+    "sell_n": 55,            # 卖线 EMA 周期
+    "buy_n": 5,              # 买线 EMA 周期
 
-    # ---- 触发：今天有没有"醒" ----
-    "pos_min": 50.0,         # 收盘价必须站上箱体这个百分位才允许触发
-    "strong_vol": 2.0, "strong_chg": 3.0,   # 强信号
-    "weak_vol": 1.6, "weak_chg": 2.0,       # 弱信号
+    "j_max": 50.0,           # 改良KDJ J 上限（不追高）
+    "hhv_n": 20,             # 回调参照的高点周期
+    "pullback": 0.94,        # 收盘须低于 HHV×此值（买回调）
 
-    # ---- 提示 ----
-    "chase_pos": 110.0,      # 箱位超过此值 → 已冲出货箱顶，标追高预警
+    "breadth_min": 0.50,     # 大盘涨家数占比下限
+    "hold_days": 20,         # 建议持有交易日（回测口径）
+
+    "sleep_big_move": 4.7,   # 单日涨跌幅达到此%记为"动过"
+    "sleep_lookback": 120,   # 休眠天数最多往回看多少天
+    "lb_tag_sleep": 3,       # 休眠≤此天数 → 标"博连板候选"
+    "min_bars": 130,         # 指标预热需要的最少K线数
 }
+
+# 大盘宽度：scanner 盘后算好通过 set_market() 注入，evaluate 只读
+_MARKET = {"breadth": None}
+
+
+def set_market(breadth):
+    """breadth：当日上涨家数占比（0~1）。None 表示未知，按不达标处理。"""
+    _MARKET["breadth"] = breadth
 
 
 def describe():
     """报告底部显示的规则说明。换策略时记得一起改。"""
     return [
-        f"横盘判定：{CFG['box_days']}日振幅≤{CFG['amp_max']*100:.0f}%"
-        f"／均线粘合≤{CFG['ma_gap_max']*100:.0f}%"
-        f"／日均换手≤{CFG['turnover_max']:.0f}%",
-        f"触发：强=量能≥{CFG['strong_vol']}倍且涨≥{CFG['strong_chg']:.0f}%"
-        f" · 弱=量能≥{CFG['weak_vol']}倍且涨≥{CFG['weak_chg']:.0f}%",
-        f"市值 {CFG['mkt_min']:.0f}~{CFG['mkt_max']:.0f} 亿 · 股价≥{CFG['price_min']:.0f} 元",
+        f"信号：EMA(C,{CFG['buy_n']}) 上穿 EMA(SLOPE(C,{CFG['slope_n']})"
+        f"*20+C,{CFG['sell_n']})",
+        f"过滤：J<{CFG['j_max']:.0f} ＋ 收盘<HHV(H,{CFG['hhv_n']})"
+        f"×{CFG['pullback']:.2f} ＋ 收阳 ＋ 大盘涨家数≥{CFG['breadth_min']*100:.0f}%",
+        f"密度门槛：当日出票≥7只（约0.7%×扫描数）才推送；"
+        f"稀疏日仅记录不推送",
+        f"建议持有 {CFG['hold_days']} 个交易日；休眠≤{CFG['lb_tag_sleep']}天"
+        f"的信号标注「博连板候选」（连板率高4~6倍，但整体收益不更好，勿重仓）",
+        f"市值 {CFG['mkt_min']:.0f}~{CFG['mkt_max']:.0f} 亿 · "
+        f"股价≥{CFG['price_min']:.0f} 元",
     ]
 
 
 # =====================================================================
-# 可交易范围：账户开不了的板块直接不扫，省数据省时间
+# 可交易范围：账户开不了的板块直接不扫
 # 开通对应权限后，把开关改成 False 即可恢复
 # =====================================================================
 UNIVERSE = {
@@ -111,7 +122,7 @@ UNIVERSE = {
 
 
 def is_excluded(code):
-    """按代码判断是否属于不扫的板块。代码形如 sh688001 / sz300466 / bj430047。"""
+    """按代码判断是否属于不扫的板块。代码形如 sh600000 / sz000001 / bj430047。"""
     raw = str(code).lower()
     if raw.startswith("bj"):
         return UNIVERSE["exclude_bj"]                 # 北交所
@@ -126,158 +137,146 @@ def is_excluded(code):
 
 
 # =====================================================================
+# 指标（与通达信逐行对齐，同 bt_top3/backtest.py）
+# =====================================================================
+def EMA(s, n):
+    return s.ewm(span=n, adjust=False).mean()
+
+
+def SMA(s, n, m):
+    """通达信 SMA(X,N,M): Y = (M*X + (N-M)*Y')/N"""
+    return s.ewm(alpha=m / n, adjust=False).mean()
+
+
+def SLOPE(s, n):
+    """rolling 线性回归斜率（向量化）"""
+    a = s.to_numpy(dtype=float)
+    out = np.full(len(a), np.nan)
+    if len(a) < n:
+        return pd.Series(out, index=s.index)
+    t = np.arange(n, dtype=float)
+    t_c = t - t.mean()
+    var = (t_c ** 2).sum()
+    win = np.lib.stride_tricks.sliding_window_view(a, n)
+    ym = win.mean(axis=1, keepdims=True)
+    cov = ((win - ym) * t_c).sum(axis=1)
+    out[n - 1:] = cov / var
+    return pd.Series(out, index=s.index)
+
+
+def modified_j(close, low, high):
+    """改良KDJ：J = 3*SMA(RSV,5,1) - 2*SMA(SMA(RSV,5,1),3,1)，RSV 周期 9"""
+    hh, ll = high.rolling(9).max(), low.rolling(9).min()
+    rsv = ((close - ll) / (hh - ll) * 100).clip(0, 200)
+    k = SMA(rsv, 5, 1)
+    d = SMA(k, 3, 1)
+    return 3 * k - 2 * d
+
+
+def sleep_days(close, big_move, lookback):
+    """休眠天数：距上一根单日涨跌幅≥big_move% 的天数（含当日），上限 lookback"""
+    pct = close.pct_change() * 100
+    big = (pct.abs() >= big_move).to_numpy()
+    last = -1
+    out = np.full(len(big), float(lookback))
+    for i in range(len(big)):
+        if big[i]:
+            last = i
+        out[i] = i - last if last >= 0 else lookback
+    return float(out[-1])
+
+
+# =====================================================================
 # 核心：判断一只股票
 # =====================================================================
 def evaluate(hist, code, name, prev, mktcap):
-    # ---------- 0. 市值门槛 ----------
+    # ---------- 0. 门槛：市值 / 数据长度 / 大盘宽度 ----------
     if mktcap is None or mktcap < CFG["mkt_min"] or mktcap > CFG["mkt_max"]:
         return None
-
-    # ---------- 1. 切出箱体和最新一天 ----------
-    d = hist.tail(CFG["box_days"] + 1)
-    if len(d) < CFG["box_days"] + 1:
+    if len(hist) < CFG["min_bars"]:
         return None
-    box, last = d.iloc[:-1], d.iloc[-1]
-
-    lo, hi = float(box["low"].min()), float(box["high"].max())
-    if lo <= 0 or hi <= lo:
-        return None
-    close = float(last["close"])
-
-    # ---------- 2. 横盘判定 ----------
-    amp = hi / lo - 1                                  # 箱体振幅
-    if amp > CFG["amp_max"]:
+    breadth = _MARKET["breadth"]
+    if breadth is None or breadth < CFG["breadth_min"]:
         return None
 
-    # 均线粘合只看箱体期（不含今天）：
-    # 横盘是"过去的状态"，今天放量突破本身就该把短均线拉起来，
-    # 如果把今天算进去，一只横得好好的票会因为自己今天涨了就判不合格。
-    closes = box["close"]
-    if len(closes) < 60:
-        return None
-    mas = [closes.tail(n).mean() for n in (5, 10, 20, 60)]
-    ma_gap = (max(mas) - min(mas)) / min(mas)          # 均线粘合度
-    if ma_gap > CFG["ma_gap_max"]:
+    c = hist["close"].astype(float)
+    o = hist["open"].astype(float)
+    h = hist["high"].astype(float)
+    l = hist["low"].astype(float)
+    v = hist["volume"].astype(float)
+
+    # ---------- 1. 指标 ----------
+    buy = EMA(c, CFG["buy_n"])
+    sell = EMA(SLOPE(c, CFG["slope_n"]) * 20 + c, CFG["sell_n"])
+    cross = bool(buy.iloc[-1] > sell.iloc[-1] and
+                 buy.iloc[-2] <= sell.iloc[-2])
+    if not cross:
         return None
 
-    if "turnover" not in box.columns or box["turnover"].notna().sum() < 30:
-        return None
-    raw_t = float(box["turnover"].median())
-    # 新浪接口的换手率是小数(0.0129=1.29%)，但不同版本可能直接给百分数，做个自适应
-    scale = 100.0 if raw_t < 1.0 else 1.0
-    t_avg = float(box["turnover"].mean()) * scale
-    if t_avg > CFG["turnover_max"]:
+    j = float(modified_j(c, l, h).iloc[-1])
+    hhv = float(h.tail(CFG["hhv_n"]).max())
+    close = float(c.iloc[-1])
+    cheap = close < hhv * CFG["pullback"]
+    yang = close > float(o.iloc[-1])
+    if not (j < CFG["j_max"] and cheap and yang):
         return None
 
-    # ---------- 3. 今日异动 ----------
-    vol_avg = float(box["volume"].mean())
-    if vol_avg <= 0:
-        return None
-    vol_ratio = float(last["volume"]) / vol_avg         # 相对自身箱体期均量的倍数
-    prev_close = float(box["close"].iloc[-1])
-    chg = (close / prev_close - 1) * 100 if prev_close > 0 else 0.0
-    pos = (close - lo) / (hi - lo) * 100                # 箱体位置，可超过100
-    gap_to_top = (hi / close - 1) * 100                 # 距箱顶，已突破时为负
-    broke = pos > 100.5                                 # 留 0.5% 容差，避免贴顶误判为突破
+    # ---------- 2. 特征值（排序/标注用，全部只含当日及以前） ----------
+    chg = (close / float(c.iloc[-2]) - 1) * 100
+    vr = float(v.iloc[-1] / v.rolling(20).mean().iloc[-1])
+    dd = (1 - close / (hhv * CFG["pullback"])) * 100      # 回调深度 %
+    spread = (float(buy.iloc[-1]) / float(sell.iloc[-1]) - 1) * 100
+    sleep = sleep_days(c, CFG["sleep_big_move"], CFG["sleep_lookback"])
+    lb_tag = sleep <= CFG["lb_tag_sleep"]
 
-    # ---------- 4. 信号分档 ----------
-    level = None
-    if pos >= CFG["pos_min"]:
-        if vol_ratio >= CFG["strong_vol"] and chg >= CFG["strong_chg"]:
-            level = "强"
-        elif vol_ratio >= CFG["weak_vol"] and chg >= CFG["weak_chg"]:
-            level = "弱"
-
-    # ---------- 5. 箱位文案（修掉"距箱顶-4.1%"这种反人类写法） ----------
-    if broke:
-        pos_txt = f"已突破箱顶 {pos - 100:.1f}%（箱位 {pos:.0f}%）"
-        pos_kind = "warn" if pos >= CFG["chase_pos"] else "up"
-    elif gap_to_top <= 3:
-        pos_txt = f"贴箱顶（箱位 {pos:.0f}%）"
-        pos_kind = "up"
+    # ---------- 3. 文案 ----------
+    if lb_tag:
+        summary = (f"信号 · 刚动过（休眠{sleep:.0f}天）· 博连板候选："
+                   f"连板概率高但波动大，勿重仓")
     else:
-        pos_txt = f"{pos:.0f}%（距箱顶 {gap_to_top:.1f}%）"
-        pos_kind = ""
+        summary = f"信号 · 休眠{sleep:.0f}天 · 建议持有{CFG['hold_days']}日口径"
 
-    # ---------- 6. 一句话标签 ----------
-    if level == "强":
-        if pos >= CFG["chase_pos"]:
-            summary = f"强信号 · 但已冲出箱顶 {pos - 100:.0f}%，追高风险大"
-        else:
-            summary = f"强信号 · 量能 {vol_ratio:.1f} 倍 · 站上箱体 {pos:.0f}%"
-    elif level == "弱":
-        summary = f"弱信号 · 量能 {vol_ratio:.1f} 倍 · 接近触发"
-    else:
-        summary = f"横盘观察 · 箱位 {pos:.0f}% · 今日未放量"
-
-    # ---------- 7. 卡片字段 ----------
     fields = [
         ("现价", f"¥{close:.2f}", ""),
-        ("今日涨幅", f"{chg:+.2f}%", "up" if chg > 0 else ("" if chg == 0 else "dim")),
-        ("量能倍数", f"{vol_ratio:.2f} 倍", "up" if vol_ratio >= CFG["strong_vol"] else ""),
-        ("箱体位置", pos_txt, pos_kind),
-        ("箱体振幅", f"{amp*100:.1f}%", ""),
-        ("均线粘合", f"{ma_gap*100:.1f}%", ""),
-        ("日均换手", f"{t_avg:.2f}%", ""),
+        ("今日涨幅", f"{chg:+.2f}%", "up" if chg > 0 else ""),
+        ("量能倍数", f"{vr:.2f} 倍", "up" if vr >= 1.2 else ""),
+        ("J值", f"{j:.1f}", "dim"),
+        ("回调深度", f"{dd:.1f}%", "dim"),
+        ("休眠天数", f"{sleep:.0f} 天", "warn" if lb_tag else ""),
+        ("金叉乖离", f"{spread:+.2f}%", "dim"),
         ("流通市值", f"{mktcap:.1f} 亿", ""),
-        ("箱体区间", f"¥{lo:.2f} ~ ¥{hi:.2f}", "full"),
+        ("持有建议", f"{CFG['hold_days']} 个交易日口径"
+         f"（回测20日均收 +1.8%）", "full"),
     ]
 
-    # ---------- 8. 自然语言解释 ----------
-    days_txt = f"本系统已跟踪 {prev['days'] + 1} 天，" if prev else "首次入池，"
-    if broke:
-        tail = (f"今日以 {vol_ratio:.1f} 倍量上涨 {chg:.1f}%，"
-                f"收盘 {close:.2f} 已冲出箱顶 {hi:.2f}，属于启动之后的追高位置，"
-                f"不是起步位置。")
-    elif level:
-        tail = (f"今日 {vol_ratio:.1f} 倍量上涨 {chg:.1f}%，"
-                f"收盘 {close:.2f} 处于箱体 {pos:.0f}% 位置，箱顶 {hi:.2f}，"
-                f"距箱顶还有 {gap_to_top:.1f}%。")
-    else:
-        tail = (f"今日量能 {vol_ratio:.1f} 倍、涨幅 {chg:.1f}%，还没有放量，"
-                f"收盘 {close:.2f} 在箱体 {pos:.0f}% 位置，箱顶 {hi:.2f}。"
-                f"属于「站在门口」，等的是它放量那天。")
-    why = (f"{CFG['box_days']} 个交易日内股价被压在 ¥{lo:.2f}~¥{hi:.2f} 的箱子里，"
-           f"振幅 {amp*100:.1f}%，四条均线粘合度 {ma_gap*100:.1f}%，"
-           f"日均换手仅 {t_avg:.2f}%。{days_txt}{tail}")
+    why = (f"买线 EMA{CFG['buy_n']} 今日上穿趋势线 EMA{CFG['sell_n']}（金叉乖离 "
+           f"{spread:+.2f}%）。J={j:.1f} 未过热；收盘 ¥{close:.2f} 低于 20 日高点 "
+           f"¥{hhv:.2f} 的 {CFG['pullback']:.2f} 倍（回调深度 {dd:.1f}%）；"
+           f"今日收阳。当日大盘涨家数 {breadth*100:.0f}%，"
+           f"满足 ≥{CFG['breadth_min']*100:.0f}% 的市场环境条件。"
+           f"该股已休眠 {sleep:.0f} 天（单日涨跌≥{CFG['sleep_big_move']}%记为动过）。"
+           f"回测口径：持有 {CFG['hold_days']} 个交易日。")
 
-    # ---------- 9. 打分 ----------
-    score = _score(amp, ma_gap, vol_ratio, chg, pos, prev)
-    if pos >= CFG["chase_pos"]:
-        score -= 15                        # 追高扣分
+    # score 用于报告排序：休眠越短越靠前（连板特征），仅排序不宣称优势
+    score = int(round(100 - min(sleep, 60) / 60 * 40))
 
     metrics = {
-        "amp": round(amp * 100, 1),
-        "ma_gap": round(ma_gap * 100, 1),
-        "turnover_avg": round(t_avg, 2),
-        "vol_ratio": round(vol_ratio, 2),
-        "chg": round(chg, 2),
-        "pos": round(pos, 1),
         "close": round(close, 2),
-        "box_high": round(hi, 2),
-        "box_low": round(lo, 2),
-        "gap_to_top": round(gap_to_top, 1),
-        "days": (prev["days"] + 1) if prev else 1,
+        "chg": round(chg, 2),
+        "vr": round(vr, 2),
+        "J": round(j, 1),
+        "dd": round(dd, 2),
+        "spread": round(spread, 2),
+        "sleep": int(sleep),
+        "lb_tag": int(lb_tag),
+        "breadth": round(breadth * 100, 1),
     }
 
     return {
-        "level": level,
-        "score": max(0, min(int(score), 100)),
+        "level": "弱",            # 由 scanner 按密度门槛决定是否升级为"强"
+        "score": max(0, min(score, 100)),
         "summary": summary,
         "fields": fields,
         "why": why,
         "metrics": metrics,
     }
-
-
-def _score(amp, ma_gap, vol_ratio, chg, pos, prev):
-    """打分：振幅越窄、均线越粘、跟踪越久 → 底分越高；量能和涨幅 → 加分。"""
-    s = 40.0
-    s += min((CFG["amp_max"] - amp) / CFG["amp_max"] * 15, 15)
-    s += min((CFG["ma_gap_max"] - ma_gap) / CFG["ma_gap_max"] * 15, 15)
-    days = (prev["days"] + 1) if prev else 1
-    s += min(days, 30) * 0.4
-    if vol_ratio > 1.2:
-        s += min(vol_ratio, 6) * 1.8
-    s += min(max(chg, 0), 10)
-    return s

@@ -117,28 +117,59 @@ def _watch_html(watch):
         '「跟踪」是本系统盯了它几天，不是它横了几天 —— 横盘周期固定按策略参数算。</div>')
 
 
+def _watch_html(watch):
+    """信号历史池：最近 14 天出过信号的票"""
+    if not watch:
+        return '<p class="empty">最近 14 天暂无信号记录</p>'
+    trs = []
+    for w in watch:
+        sleep = w.get("sleep")
+        tag = "⚠️" if (sleep is not None and sleep <= 3) else ""
+        trs.append(
+            f"<tr><td>{w['name']}<div class='cd'>{w['code']}</div></td>"
+            f"<td class='c'>{w.get('last_date', '-')}</td>"
+            f"<td class='c'>¥{w.get('close', '-')}</td>"
+            f"<td class='c pos'>{tag}{sleep if sleep is not None else '-'}天</td>"
+            f"<td class='st'>J={w.get('J', '-')}</td></tr>")
+    return (
+        '<table class="wl"><tr><th>名称</th><th>信号日</th><th>收盘</th>'
+        '<th>休眠</th><th>J值</th></tr>' + "".join(trs) + "</table>"
+        '<div class="legend">「休眠」= 距上一根单日涨跌≥4.7%的天数，'
+        '越短说明越"刚动过"。休眠≤3天标注 ⚠️：连板概率较高，但波动大，'
+        '整体收益并不更好，勿重仓。</div>')
+
+
 def build(result):
     d = result
     strong, weak = d.get("strong", []), d.get("weak", [])
-    watch = d.get("watchlist", [])
+    hist_pool = d.get("pool_history", [])
     st = d.get("strategy") or {}
 
-    ns, nw = d.get("strong_total", len(strong)), d.get("weak_total", len(weak))
-    if ns or nw:
-        head = f"强信号 {ns} 只 · 弱信号 {nw} 只"
-    else:
-        head = "今日无触发信号"
+    n_total = d.get("signal_total", len(strong) + len(weak))
+    thr = d.get("density_threshold")
+    ok = d.get("density_ok")
+    br = d.get("breadth")
 
-    body_s = "".join(card(m, i) for i, m in enumerate(strong, 1)) or \
-        '<p class="empty">今日无强信号</p>'
+    if n_total:
+        state = "已达标 → 推送" if ok else f"未达标 {thr} → 仅记录，不出手"
+        head = f"出票 {n_total} 只 · 密度{state}"
+    else:
+        head = "今日无信号（安静的日子，不出手是纪律）"
+
+    if strong:
+        body_s = "".join(card(m, i) for i, m in enumerate(strong, 1))
+        sec_s = "今日信号（密度达标 · 已推送微信）"
+    else:
+        body_s = '<p class="empty">今日密度未达标，没有推送</p>'
+        sec_s = "今日信号"
     body_w = "".join(card(m, i) for i, m in enumerate(weak, 1)) or \
-        '<p class="empty">今日无弱信号</p>'
+        ("" if strong else '<p class="empty">今日无信号</p>')
 
     scope = "全市场" if d.get("scope") == "all" else "涨幅榜"
     stat = f"扫描 {d.get('scanned', 0)} 只"
     if d.get("scanned_ok"):
         stat += f"（有效 {d['scanned_ok']}）"
-    stat += f" · 横盘池 {d.get('pool_size', 0)} 只"
+    br_txt = f" · 大盘涨家数 {br}%" if br is not None else ""
 
     rules = st.get("rules") or []
     rules_html = "".join(f"{r}<br>" for r in rules)
@@ -146,7 +177,7 @@ def build(result):
     return f"""<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <meta name="robots" content="noindex,nofollow">
-<title>横盘异动 {d['date']}</title>
+<title>黑牛稳健 {d['date']}</title>
 <style>
 *{{box-sizing:border-box}}
 body{{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;background:#f2f3f5;margin:0;padding:14px;color:#1a1a1a;-webkit-text-size-adjust:100%}}
@@ -178,53 +209,46 @@ td:nth-child(odd){{color:#999;width:22%}}
 .wl .cd{{color:#bbb;font-size:10px;margin-top:2px}}
 .wl .pos{{font-weight:700}}
 .wl .st{{font-size:11px;color:#888}}
-.wl tr.hot{{background:#fff5f5}}
-.wl tr.hot .pos{{color:#c00}}
-.wl tr.hot .st{{color:#c00;font-weight:600}}
-.wl tr.chase{{background:#fff0f0}}
-.wl tr.chase .pos{{color:#8b0000}}
-.wl tr.chase .st{{color:#8b0000}}
-.wl tr.near{{background:#fffdf5}}
-.wl tr.near .pos{{color:#e08a00}}
-.wl tr.near .st{{color:#e08a00}}
-.wl tr.cold{{opacity:.6}}
 .legend{{font-size:11px;color:#aaa;margin-top:7px;line-height:1.7;padding:0 4px}}
 .foot{{text-align:center;color:#bbb;font-size:11px;margin:22px 0 8px;line-height:1.8}}
 </style></head><body>
-<h1>横盘异动选股</h1>
-<div class="sub">{d['date']} · {scope} · {stat} · {head}<br>
+<h1>黑牛稳健选股</h1>
+<div class="sub">{d['date']} · {scope}{br_txt} · {stat}<br>{head}<br>
 策略：{st.get('name', '')} {st.get('version', '')}</div>
-<h2>强信号（已推送）</h2>
-{body_s}
-<h2>弱信号（接近触发）</h2>
-{body_w}
-<h2>横盘池 · 持续观察</h2>
-{_watch_html(watch)}
+<h2>{sec_s}</h2>
+{body_s if strong else body_w}
+{'<h2>同日其余信号（排序按休眠天数）</h2>' + body_w if strong and weak else ''}
+<h2>信号历史 · 最近14天</h2>
+{_watch_html(hist_pool)}
 <div class="foot">{rules_html}
-⚠️ 非投资建议，横盘突破策略胜率有限，请自行决策</div>
+⚠️ 非投资建议，历史回测不代表未来收益，请自行决策</div>
 </body></html>"""
 
 
 def push(result):
-    """仅强信号推送，节省 Server酱 每天 5 条额度。"""
+    """仅密度达标日推送，节省 Server酱 每天 5 条额度。"""
     strong = result.get("strong", [])
     if not SENDKEY:
         print("未配置 SENDKEY，跳过推送")
         return
     if not strong:
-        print("今日无强信号，按规则不推送")
+        print("今日密度未达标/无信号，按规则不推送")
         return
 
-    names = "、".join(m["name"] for m in strong)
-    title = f"横盘异动 {result['date']}：{names}"
-    lines = []
-    for m in strong:
+    shown = strong[:12]
+    names = "、".join(m["name"] for m in shown)
+    more = f" 等{len(strong)}只" if len(strong) > len(shown) else ""
+    title = f"黑牛信号 {result['date']}：{names[:24]}{more}"
+    lines = [f"当日出票 **{result.get('signal_total', len(strong))} 只**"
+             f"（门槛 {result.get('density_threshold')}，已达标）。"
+             f"建议持有 20 个交易日口径，均匀买一篮子，不挑个股。", ""]
+    for m in shown:
         f = {lab: val for lab, val, _ in (m.get("fields") or [])}
         lines.append(
-            f"**{m['name']}** {m['code']} · {m['score']}分\n"
-            f"- 现价 {f.get('现价', '-')}，今日 **{f.get('今日涨幅', '-')}**\n"
-            f"- 量能 {f.get('量能倍数', '-')} · 箱位 {f.get('箱体位置', '-')}\n"
-            f"- 振幅 {f.get('箱体振幅', '-')} · 箱体 {f.get('箱体区间', '-')}\n"
+            f"**{m['name']}** {m['code']}\n"
+            f"- 现价 {f.get('现价', '-')} · 今日 {f.get('今日涨幅', '-')}"
+            f" · J值 {f.get('J值', '-')}\n"
+            f"- 休眠 {f.get('休眠天数', '-')} · 量能 {f.get('量能倍数', '-')}\n"
             f"- {m.get('summary', '')}\n")
     desp = "\n".join(lines)
     if REPORT_URL:
