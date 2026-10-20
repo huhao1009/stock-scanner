@@ -1,16 +1,16 @@
 
-
 name: stock-scanner
 
 on:
   schedule:
-    # 每天 UTC 10:30 = 北京 18:30 触发
-    # 周末/节假日由代码内部判断并自动跳过（含调休）
+    # 每天 UTC 10:30 = 北京 18:30（周末/节假日由代码内部判断跳过）
     - cron: "30 10 * * *"
   workflow_dispatch: {}
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 concurrency:
   group: stock-scanner
@@ -26,10 +26,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: pip
 
       - name: Install deps
-        run: pip install -q akshare pandas requests
+        run: pip install -q -r requirements.txt
 
       - name: Run scanner
         run: python scanner.py
@@ -37,21 +36,32 @@ jobs:
       - name: Build report and push
         env:
           SENDKEY: ${{ secrets.SENDKEY }}
+          REPORT_URL: https://huhao1009.github.io/stock-scanner/
         run: python report.py
 
-      - name: Save pool
+      - name: Publish to docs
+        run: |
+          mkdir -p docs
+          cp report.html docs/index.html
+          if [ -f report.html ]; then echo "ok"; fi
+
+      - name: Save pool and report
         run: |
           git config user.name "stock-scanner-bot"
           git config user.email "bot@users.noreply.github.com"
-          git add pool.json result.json || true
-          git commit -m "update pool $(date -u +%Y-%m-%d)" || echo "no change"
+          git add pool.json result.json docs/index.html || true
+          git commit -m "update $(date -u +%Y-%m-%d)" || echo "no change"
           git push || echo "skip push"
 
-      - name: Upload report
-        if: always()
-        uses: actions/upload-artifact@v4
+  deploy:
+    needs: scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
         with:
-          name: report-${{ github.run_id }}
-          path: report.html
-          retention-days: 90
-          if-no-files-found: ignore
+          ref: main
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+      - uses: actions/deploy-pages@v4
