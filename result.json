@@ -1,0 +1,38 @@
+{
+  "date": "2026-10-20",
+  "scanned": 700,
+  "pool_size": 4,
+  "strong": [],
+  "weak": [],
+  "watchlist": [
+    {
+      "code": "sz300150",
+      "name": "世纪瑞尔",
+      "days": 1,
+      "amp": 24.5,
+      "first_seen": "2026-10-20"
+    },
+    {
+      "code": "sz002835",
+      "name": "同为股份",
+      "days": 1,
+      "amp": 25.3,
+      "first_seen": "2026-10-20"
+    },
+    {
+      "code": "sz300466",
+      "name": "赛摩智能",
+      "days": 1,
+      "amp": 29.3,
+      "first_seen": "2026-10-20"
+    },
+    {
+      "code": "sz300908",
+      "name": "仲景食品",
+      "days": 1,
+      "amp": 29.6,
+      "first_seen": "2026-10-20"
+    }
+  ],
+  "mkt_filter": true
+}
