@@ -64,6 +64,7 @@ def build_placeholder(date, reason):
     """非交易日 / 扫描被中止时也要出一张页面，否则工作流会因缺文件而变红。"""
     return f"""<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
 <title>横盘异动 {date}</title>
 <style>
 body{{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;
@@ -144,6 +145,7 @@ def build(result):
 
     return f"""<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<meta name="robots" content="noindex,nofollow">
 <title>横盘异动 {d['date']}</title>
 <style>
 *{{box-sizing:border-box}}
