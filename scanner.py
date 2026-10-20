@@ -1,3 +1,4 @@
+
 # -*- coding: utf-8 -*-
 """
 A股横盘异动选股引擎 v4 (C方案: 强弱双档)
@@ -246,7 +247,9 @@ def main():
             "score": score_of(m, days),
         })
         new_pool[code] = {"first_seen": rec["first_seen"], "days": days,
-                          "name": rec["name"], "amp": m["amp"], "last": today}
+                          "name": rec["name"], "amp": m["amp"], "last": today,
+                          "pos": m["pos_in_box"], "close": m["close"],
+                          "box_high": m["box_high"], "box_low": m["box_low"]}
 
         if m["pos_in_box"] < 50:
             continue
@@ -263,14 +266,19 @@ def main():
     strong.sort(key=lambda x: -x["score"])
     weak.sort(key=lambda x: -x["score"])
     trig_codes = {r["code"] for r in strong + weak}
+    # 排序: 先按箱体位置(越接近箱顶越靠前), 位置相近再看横盘天数
     watch = sorted([(k, v) for k, v in new_pool.items() if k not in trig_codes],
-                   key=lambda x: (-x[1]["days"], x[1]["amp"]))
+                   key=lambda x: (-(x[1].get("pos") or 0), -x[1]["days"]))
 
     res = {
         "date": today, "scanned": len(scan_codes), "pool_size": len(new_pool),
         "strong": strong[: CFG["max_out"]], "weak": weak[: CFG["max_out"]],
         "watchlist": [{"code": k, "name": v["name"], "days": v["days"],
-                       "amp": v["amp"], "first_seen": v["first_seen"]}
+                       "amp": v["amp"], "first_seen": v["first_seen"],
+                       "pos": v.get("pos"), "close": v.get("close"),
+                       "box_high": v.get("box_high"),
+                       "gap_to_top": round((v["box_high"] / v["close"] - 1) * 100, 1)
+                       if v.get("close") and v.get("box_high") else None}
                       for k, v in watch[: CFG["max_watch"]]],
         "mkt_filter": True,   # 自算市值已覆盖全部标的
     }
