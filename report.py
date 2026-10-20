@@ -39,11 +39,35 @@ def build(result):
     body_w = "".join(card(m, i) for i, m in enumerate(weak, 1)) or '<p class="empty">今日无弱信号</p>'
 
     if watch:
-        rows = "".join(
-            f"<tr><td>{w['name']}</td><td>{w['code']}</td><td class='c'>{w['days']}天</td>"
-            f"<td class='c'>{w['amp']}%</td><td class='c'>{w['first_seen']}</td></tr>"
-            for w in watch)
-        watch_html = f"""<table class="wl"><tr><th>名称</th><th>代码</th><th>池内天数</th><th>振幅</th><th>入池日</th></tr>{rows}</table>"""
+        trs = []
+        for w in watch:
+            pos = w.get("pos")
+            gap = w.get("gap_to_top")
+            if pos is None:
+                pos_txt, status, cls = "-", "数据不足", ""
+            elif pos >= 85:
+                pos_txt = f"{pos:.0f}%"
+                status = f"🔥 贴箱顶（距箱顶{gap}%）" if gap is not None else "🔥 贴箱顶"
+                cls = "hot"
+            elif pos >= 70:
+                pos_txt = f"{pos:.0f}%"
+                status = f"逼近箱顶（距箱顶{gap}%）" if gap is not None else "逼近箱顶"
+                cls = "near"
+            elif pos >= 45:
+                pos_txt = f"{pos:.0f}%"
+                status, cls = "箱体中部", ""
+            else:
+                pos_txt = f"{pos:.0f}%"
+                status, cls = "箱体下部", "cold"
+            trs.append(
+                f"<tr class='{cls}'><td>{w['name']}<div class='cd'>{w['code']}</div></td>"
+                f"<td class='c'>{w['days']}天</td><td class='c'>{w['amp']}%</td>"
+                f"<td class='c pos'>{pos_txt}</td><td class='st'>{status}</td></tr>")
+        watch_html = (
+            '<table class="wl"><tr><th>名称</th><th>天数</th><th>振幅</th>'
+            '<th>箱位</th><th>状态</th></tr>' + "".join(trs) + "</table>"
+            '<div class="legend">箱位＝当前价在横盘箱体中的位置，越高越接近突破；'
+            '🔥 贴箱顶（≥85%）需重点关注</div>')
     else:
         watch_html = '<p class="empty">池内暂无标的</p>'
 
@@ -79,6 +103,17 @@ td:nth-child(odd){{color:#999;width:22%}}
 .wl th{{background:#fafafa;color:#888;font-weight:500;padding:8px 6px;font-size:11px;text-align:left}}
 .wl td{{padding:8px 6px;border-bottom:1px solid #f4f4f4}}
 .wl .c{{text-align:center;color:#666}}
+.wl .cd{{color:#bbb;font-size:10px;margin-top:2px}}
+.wl .pos{{font-weight:700}}
+.wl .st{{font-size:11px;color:#888}}
+.wl tr.hot{{background:#fff5f5}}
+.wl tr.hot .pos{{color:#c00}}
+.wl tr.hot .st{{color:#c00;font-weight:600}}
+.wl tr.near{{background:#fffdf5}}
+.wl tr.near .pos{{color:#e08a00}}
+.wl tr.near .st{{color:#e08a00}}
+.wl tr.cold{{opacity:.6}}
+.legend{{font-size:11px;color:#aaa;margin-top:7px;line-height:1.6;padding:0 4px}}
 .foot{{text-align:center;color:#bbb;font-size:11px;margin:22px 0 8px;line-height:1.7}}
 </style></head><body>
 <h1>横盘异动选股</h1>
