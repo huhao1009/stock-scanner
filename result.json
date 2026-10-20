@@ -1,34 +1,48 @@
 {
   "date": "2026-10-20",
   "scanned": 700,
-  "pool_size": 4,
+  "pool_size": 6,
   "strong": [],
   "weak": [],
   "watchlist": [
     {
       "code": "sz300150",
       "name": "世纪瑞尔",
-      "days": 1,
+      "days": 2,
       "amp": 24.5,
       "first_seen": "2026-10-20"
     },
     {
       "code": "sz002835",
       "name": "同为股份",
-      "days": 1,
+      "days": 2,
       "amp": 25.3,
       "first_seen": "2026-10-20"
     },
     {
       "code": "sz300466",
       "name": "赛摩智能",
-      "days": 1,
+      "days": 2,
       "amp": 29.3,
       "first_seen": "2026-10-20"
     },
     {
       "code": "sz300908",
       "name": "仲景食品",
+      "days": 2,
+      "amp": 29.6,
+      "first_seen": "2026-10-20"
+    },
+    {
+      "code": "sz300633",
+      "name": "开立医疗",
+      "days": 1,
+      "amp": 24.5,
+      "first_seen": "2026-10-20"
+    },
+    {
+      "code": "sh603656",
+      "name": "泰禾智能",
       "days": 1,
       "amp": 29.6,
       "first_seen": "2026-10-20"
