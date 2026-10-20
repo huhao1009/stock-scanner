@@ -99,6 +99,33 @@ def describe():
 
 
 # =====================================================================
+# 可交易范围：账户开不了的板块直接不扫，省数据省时间
+# 开通对应权限后，把开关改成 False 即可恢复
+# =====================================================================
+UNIVERSE = {
+    "exclude_star": True,     # 科创板 688/689：50万资金+2年经验
+    "exclude_cyb": True,      # 创业板 300/301/302：10万资金+2年经验
+    "exclude_bj": True,       # 北交所：50万资金
+    "exclude_b": True,        # B股 900/200：美元/港币交易
+}
+
+
+def is_excluded(code):
+    """按代码判断是否属于不扫的板块。代码形如 sh688001 / sz300466 / bj430047。"""
+    raw = str(code).lower()
+    if raw.startswith("bj"):
+        return UNIVERSE["exclude_bj"]                 # 北交所
+    num = raw[2:] if raw[:2] in ("sh", "sz") else raw
+    if UNIVERSE["exclude_star"] and num.startswith(("688", "689")):
+        return True                                   # 科创板
+    if UNIVERSE["exclude_cyb"] and num.startswith(("300", "301", "302")):
+        return True                                   # 创业板
+    if UNIVERSE["exclude_b"] and num.startswith(("900", "200")):
+        return True                                   # B股
+    return False
+
+
+# =====================================================================
 # 核心：判断一只股票
 # =====================================================================
 def evaluate(hist, code, name, prev, mktcap):

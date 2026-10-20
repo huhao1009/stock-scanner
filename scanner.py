@@ -47,7 +47,6 @@ CFG = {
     "fetch_sleep": 0.05,      # 每只之间的间隔，纯为减轻新浪压力
 }
 BAD = re.compile(r"ST|退")
-EXCLUDE_PREFIX = ("bj", "4", "8", "920")
 
 
 def log(m):
@@ -160,7 +159,7 @@ def main():
 
     df = spot.copy()
     df = df[~df["名称"].astype(str).str.contains(BAD)]
-    df = df[~df["代码"].astype(str).str.startswith(EXCLUDE_PREFIX)]
+    df = df[~df["代码"].astype(str).map(strategy.is_excluded)]
     df["最新价"] = pd.to_numeric(df["最新价"], errors="coerce")
     df["涨跌幅"] = pd.to_numeric(df.get("涨跌幅"), errors="coerce")
     df = df.dropna(subset=["最新价"])

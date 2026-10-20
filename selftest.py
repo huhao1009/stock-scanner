@@ -105,6 +105,24 @@ def main():
     if big is not None:
         ok = False
 
+    # 板块过滤：新手开不了的板块必须被剔除
+    board_cases = [
+        ("sh688001", True, "科创板"),
+        ("sz300466", True, "创业板"),
+        ("sz301999", True, "创业板"),
+        ("bj430047", True, "北交所"),
+        ("sh900901", True, "B股"),
+        ("sz002835", False, "深主板"),
+        ("sh603418", False, "沪主板"),
+        ("sh600519", False, "沪主板"),
+    ]
+    for code, want, label in board_cases:
+        got = strategy.is_excluded(code)
+        flag = "PASS" if got == want else "FAIL"
+        if flag == "FAIL":
+            ok = False
+        print(f"[{flag}] 板块过滤 {label} {code}: 期望剔除={want} 实际={got}")
+
     # 报告渲染
     res = {
         "date": "2026-10-20", "scanned": 5000, "scanned_ok": 4800,
