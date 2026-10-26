@@ -1,9 +1,10 @@
 {
- "date": "2026-10-25",
- "skip": true,
- "reason": "非交易日",
- "scanned": 0,
- "pool_size": 0,
+ "date": "2026-10-26",
+ "scanned": 2894,
+ "scanned_ok": 2894,
+ "scope": "all",
+ "breadth": 45.9,
+ "pool_size": 2,
  "strategy": {
   "name": "黑牛稳健",
   "version": "v1",
@@ -15,7 +16,27 @@
    "市值 15~300 亿 · 股价≥3 元"
   ]
  },
+ "signal_total": 0,
+ "density_threshold": 20,
+ "density_ok": false,
  "strong": [],
  "weak": [],
- "watchlist": []
+ "pool_history": [
+  {
+   "code": "sh601116",
+   "name": "三江购物",
+   "last_date": "2026-10-23",
+   "close": 10.41,
+   "sleep": 6,
+   "J": 31.7
+  },
+  {
+   "code": "sz002430",
+   "name": "杭氧股份",
+   "last_date": "2026-10-20",
+   "close": 25.28,
+   "sleep": 4,
+   "J": 34.0
+  }
+ ]
 }
