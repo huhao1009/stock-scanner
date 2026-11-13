@@ -1,9 +1,9 @@
 {
- "date": "2026-11-12",
- "scanned": 2878,
- "scanned_ok": 2878,
+ "date": "2026-11-13",
+ "scanned": 2868,
+ "scanned_ok": 2868,
  "scope": "all",
- "breadth": 17.3,
+ "breadth": 17.7,
  "pool_size": 24,
  "strategy": {
   "name": "黑牛稳健",
